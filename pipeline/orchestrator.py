@@ -280,6 +280,13 @@ def _scapy_to_dict(pkt) -> dict[str, Any] | None:
         sport = int(ip_layer[UDP].sport)
         dport = int(ip_layer[UDP].dport)
 
+    if timestamp_override is not None:
+        pkt_ts = timestamp_override
+    elif hasattr(pkt, "time") and float(pkt.time) > 0:
+        pkt_ts = float(pkt.time)
+    else:
+        pkt_ts = time.time()
+
     return {
         "src_ip": str(ip_layer.src),
         "dst_ip": str(ip_layer.dst),
@@ -287,7 +294,7 @@ def _scapy_to_dict(pkt) -> dict[str, Any] | None:
         "dst_port": dport,
         "protocol": proto,
         "length": len(bytes(pkt)),
-        "timestamp": float(pkt.time) if hasattr(pkt, "time") else time.time(),
+        "timestamp": pkt_ts,
         "tcp_flags": flags,
     }
 
@@ -306,8 +313,18 @@ async def main_async(args: argparse.Namespace) -> None:
         logger.info("Replaying PCAP: %s at rate: %s", pcap_path, args.rate)
         rate_val = float(str(args.rate).lower().replace("mbps", "").strip() or 0.0)
 
+        start_wall_time = time.time()
+        first_pkt_time: Optional[float] = None
+
         def on_packet(pkt):
-            p_dict = _scapy_to_dict(pkt)
+            nonlocal first_pkt_time
+            raw_t = float(pkt.time) if hasattr(pkt, "time") else 0.0
+            if first_pkt_time is None:
+                first_pkt_time = raw_t
+            # Map replay timestamp relative to live start wall time
+            offset = max(0.0, raw_t - first_pkt_time)
+            live_ts = start_wall_time + offset
+            p_dict = _scapy_to_dict(pkt, timestamp_override=live_ts)
             if p_dict:
                 orchestrator.ingest_packet(p_dict)
 

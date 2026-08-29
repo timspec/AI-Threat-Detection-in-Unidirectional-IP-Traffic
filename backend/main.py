@@ -104,26 +104,39 @@ async def kpi_broadcaster_task() -> None:
             now = time.time()
             one_min_ago = now - 60.0
 
+            ten_sec_ago = now - 10.0
+
             with get_session() as session:
                 # Live alerts in last 60 seconds
                 alerts_1m = session.scalar(
                     select(func.count(Alert.alert_id)).where(Alert.timestamp >= one_min_ago)
                 ) or 0
+                alerts_10s = session.scalar(
+                    select(func.count(Alert.alert_id)).where(Alert.timestamp >= ten_sec_ago)
+                ) or 0
+                effective_alerts_min = max(alerts_1m, alerts_10s * 6)
 
                 # Total alerts
                 total_alerts = session.scalar(select(func.count(Alert.alert_id))) or 0
 
                 # Total bytes from recent flows to calculate throughput
-                recent_bytes = session.scalar(
-                    select(func.sum(Flow.total_bytes)).where(Flow.end_time >= one_min_ago)
+                recent_10s_bytes = session.scalar(
+                    select(func.sum(Flow.total_bytes)).where(Flow.end_time >= ten_sec_ago)
                 ) or 0
-                throughput_mbps = round((recent_bytes * 8.0) / (60.0 * 1_000_000.0), 3)
+
+                if recent_10s_bytes > 0:
+                    throughput_mbps = round((recent_10s_bytes * 8.0) / (10.0 * 1_000_000.0), 2)
+                else:
+                    recent_bytes = session.scalar(
+                        select(func.sum(Flow.total_bytes)).where(Flow.end_time >= one_min_ago)
+                    ) or 0
+                    throughput_mbps = round((recent_bytes * 8.0) / (60.0 * 1_000_000.0), 2)
 
             kpi_data = {
                 "type": "kpi.tick",
                 "data": {
                     "timestamp": now,
-                    "alerts_per_min": alerts_1m,
+                    "alerts_per_min": effective_alerts_min,
                     "total_alerts": total_alerts,
                     "throughput_mbps": throughput_mbps,
                     "median_latency_ms": 1.25,  # Sub-millisecond pipeline latency
