@@ -254,7 +254,7 @@ class PipelineOrchestrator:
 # CLI Interface
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _scapy_to_dict(pkt) -> dict[str, Any] | None:
+def _scapy_to_dict(pkt, timestamp_override: Optional[float] = None) -> dict[str, Any] | None:
     from scapy.layers.inet import IP, TCP, UDP
     ip_layer = None
     if pkt.haslayer(IP):
