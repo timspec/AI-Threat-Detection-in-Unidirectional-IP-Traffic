@@ -94,7 +94,14 @@ ws_manager = WebSocketManager()
 
 
 async def kpi_broadcaster_task() -> None:
-    """Background task pushing KPI telemetry ticks every 2 seconds."""
+    """Background task pushing KPI telemetry ticks every 2 seconds.
+
+    Uses a tiered window strategy:
+      1. If data exists in the last 10s  → extrapolate to per-minute rate (live).
+      2. If data exists in the last 60s  → use actual 60s counts (recent).
+      3. Otherwise                       → compute effective rates from full
+         session span (min→max timestamps) so post-replay dashboards are non-zero.
+    """
     while True:
         try:
             await asyncio.sleep(2.0)
@@ -103,23 +110,36 @@ async def kpi_broadcaster_task() -> None:
 
             now = time.time()
             one_min_ago = now - 60.0
-
             ten_sec_ago = now - 10.0
 
             with get_session() as session:
-                # Live alerts in last 60 seconds
-                alerts_1m = session.scalar(
-                    select(func.count(Alert.alert_id)).where(Alert.timestamp >= one_min_ago)
-                ) or 0
+                # ── Total alerts (always shown) ───────────────────────────
+                total_alerts = session.scalar(select(func.count(Alert.alert_id))) or 0
+
+                # ── Alerts per minute: tiered windows ─────────────────────
                 alerts_10s = session.scalar(
                     select(func.count(Alert.alert_id)).where(Alert.timestamp >= ten_sec_ago)
                 ) or 0
-                effective_alerts_min = max(alerts_1m, alerts_10s * 6)
+                alerts_1m = session.scalar(
+                    select(func.count(Alert.alert_id)).where(Alert.timestamp >= one_min_ago)
+                ) or 0
 
-                # Total alerts
-                total_alerts = session.scalar(select(func.count(Alert.alert_id))) or 0
+                if alerts_10s > 0:
+                    # Active ingestion — extrapolate 10s burst to per-minute
+                    effective_alerts_min = alerts_10s * 6
+                elif alerts_1m > 0:
+                    # Recent ingestion within last minute
+                    effective_alerts_min = alerts_1m
+                elif total_alerts > 0:
+                    # Session has ended — compute effective rate from full span
+                    min_ts = session.scalar(select(func.min(Alert.timestamp))) or 0
+                    max_ts = session.scalar(select(func.max(Alert.timestamp))) or 0
+                    span = max(max_ts - min_ts, 1.0)  # avoid div-by-zero
+                    effective_alerts_min = round(total_alerts / (span / 60.0))
+                else:
+                    effective_alerts_min = 0
 
-                # Total bytes from recent flows to calculate throughput
+                # ── Throughput (Mbps): tiered windows ─────────────────────
                 recent_10s_bytes = session.scalar(
                     select(func.sum(Flow.total_bytes)).where(Flow.end_time >= ten_sec_ago)
                 ) or 0
@@ -127,10 +147,21 @@ async def kpi_broadcaster_task() -> None:
                 if recent_10s_bytes > 0:
                     throughput_mbps = round((recent_10s_bytes * 8.0) / (10.0 * 1_000_000.0), 2)
                 else:
-                    recent_bytes = session.scalar(
+                    recent_60s_bytes = session.scalar(
                         select(func.sum(Flow.total_bytes)).where(Flow.end_time >= one_min_ago)
                     ) or 0
-                    throughput_mbps = round((recent_bytes * 8.0) / (60.0 * 1_000_000.0), 2)
+                    if recent_60s_bytes > 0:
+                        throughput_mbps = round((recent_60s_bytes * 8.0) / (60.0 * 1_000_000.0), 2)
+                    else:
+                        # Session ended — effective throughput from full span
+                        total_bytes_all = session.scalar(select(func.sum(Flow.total_bytes))) or 0
+                        if total_bytes_all > 0:
+                            min_ft = session.scalar(select(func.min(Flow.start_time))) or 0
+                            max_ft = session.scalar(select(func.max(Flow.end_time))) or 0
+                            span_f = max(max_ft - min_ft, 1.0)
+                            throughput_mbps = round((total_bytes_all * 8.0) / (span_f * 1_000_000.0), 2)
+                        else:
+                            throughput_mbps = 0.0
 
             kpi_data = {
                 "type": "kpi.tick",
