@@ -1,0 +1,28 @@
+# NTRO PS-26145: AI-Based Detection of Cyber Threats in Unidirectional IP Traffic
+# Install: pip install -r requirements.txt
+
+# --- Packet capture & parsing ---
+scapy
+dpkt
+pyshark
+
+# --- Data / feature engineering ---
+pandas
+numpy
+
+# --- Machine learning (CPU only, no GPU, no paid APIs) ---
+scikit-learn
+river
+joblib
+
+# --- API / dashboard backend ---
+fastapi
+uvicorn[standard]
+websockets
+sqlalchemy
+pydantic
+python-multipart
+
+# --- Testing ---
+pytest
+httpx

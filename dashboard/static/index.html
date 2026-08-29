@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NTRO Threat Detection — SOC Overview</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+  <!-- Navigation Bar -->
+  <header class="navbar">
+    <a href="/" class="brand">
+      <span class="brand-badge">NTRO SOC</span>
+      <span>Cyber Threat Detection</span>
+    </a>
+    <ul class="nav-links">
+      <li><a href="/" class="active">Overview</a></li>
+      <li><a href="/static/alerts.html">Live Alerts</a></li>
+      <li><a href="/static/analytics.html">Analytics</a></li>
+      <li><a href="/static/sensors.html">Sensors</a></li>
+    </ul>
+    <div class="nav-status">
+      <span class="ingest-badge" data-tooltip="Strictly unidirectional monitoring pipeline. Zero outbound transmission capability.">
+        <span class="pulse-dot" id="ws-status-dot"></span>
+        🔒 Read-only Ingest Active
+      </span>
+    </div>
+  </header>
+
+  <!-- Main Content Container -->
+  <main class="container">
+
+    <!-- 4 KPI Cards -->
+    <section class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-title">Active Threat Alerts</div>
+        <div class="kpi-value" id="kpi-active-alerts">0</div>
+        <div class="kpi-sub">Total alerts stored in DB</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">Live Rate</div>
+        <div class="kpi-value"><span id="kpi-rate">0</span> <small style="font-size:14px; color:var(--text-secondary);">/ min</small></div>
+        <div class="kpi-sub">Rolling 60-second window</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">Ingest Throughput</div>
+        <div class="kpi-value"><span id="kpi-throughput">0.00</span> <small style="font-size:14px; color:var(--text-secondary);">Mbps</small></div>
+        <div class="kpi-sub">Passive packet stream</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">Median Alert Latency</div>
+        <div class="kpi-value"><span id="kpi-latency">1.25</span> <small style="font-size:14px; color:var(--text-secondary);">ms</small></div>
+        <div class="kpi-sub">Ingest to model inference</div>
+      </div>
+    </section>
+
+    <!-- Two Column Layout: Left = Live Alert Feed, Right = 24h Threat Sparklines -->
+    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px;">
+
+      <!-- Live Streaming Alert List -->
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title">
+            <span>🚨</span> Real-Time Threat Alert Stream
+          </h2>
+          <a href="/static/alerts.html" class="btn btn-primary" style="font-size:12px; padding:4px 10px;">View Full Explorer →</a>
+        </div>
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Severity</th>
+                <th>Threat Class</th>
+                <th>Source IP : Port</th>
+                <th>Destination IP : Port</th>
+                <th>Confidence</th>
+              </tr>
+            </thead>
+            <tbody id="alert-stream-tbody">
+              <tr>
+                <td colspan="6" style="text-align:center; color:var(--text-muted); padding:30px;">
+                  Waiting for incoming flow alerts...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Right Column: 24h Threat Class Sparklines -->
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title">
+            <span>📈</span> 24-Hour Threat Trends
+          </h2>
+        </div>
+        <div style="padding: 16px 20px; display: flex; flex-direction: column; gap: 16px;">
+          
+          <div>
+            <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+              <span class="threat-tag">DDoS / Floods</span>
+              <span id="trend-count-ddos" class="mono">0</span>
+            </div>
+            <div style="height:45px;"><canvas id="spark-ddos"></canvas></div>
+          </div>
+
+          <div>
+            <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+              <span class="threat-tag">C2 Beaconing</span>
+              <span id="trend-count-c2" class="mono">0</span>
+            </div>
+            <div style="height:45px;"><canvas id="spark-c2"></canvas></div>
+          </div>
+
+          <div>
+            <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+              <span class="threat-tag">Port / Host Scans</span>
+              <span id="trend-count-recon" class="mono">0</span>
+            </div>
+            <div style="height:45px;"><canvas id="spark-recon"></canvas></div>
+          </div>
+
+          <div>
+            <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+              <span class="threat-tag">Data Exfiltration</span>
+              <span id="trend-count-exfil" class="mono">0</span>
+            </div>
+            <div style="height:45px;"><canvas id="spark-exfil"></canvas></div>
+          </div>
+
+          <div>
+            <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+              <span class="threat-tag">DGA / DNS Tunnels</span>
+              <span id="trend-count-dns" class="mono">0</span>
+            </div>
+            <div style="height:45px;"><canvas id="spark-dns"></canvas></div>
+          </div>
+
+          <div>
+            <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+              <span class="threat-tag">Encrypted Malware (JA3)</span>
+              <span id="trend-count-enc" class="mono">0</span>
+            </div>
+            <div style="height:45px;"><canvas id="spark-enc"></canvas></div>
+          </div>
+
+        </div>
+      </section>
+
+    </div>
+
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+    // ── Initial State & Sparklines ──────────────────────────────────────────
+    const sparkCharts = {};
+    const streamTbody = document.getElementById('alert-stream-tbody');
+    let hasAlerts = false;
+
+    function initSparkline(id, color) {
+      const ctx = document.getElementById(id).getContext('2d');
+      return new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: Array.from({length: 12}, (_, i) => `${i*2}h`),
+          datasets: [{
+            data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            borderColor: color,
+            borderWidth: 2,
+            pointRadius: 0,
+            fill: true,
+            backgroundColor: color.replace('1)', '0.1)'),
+            tension: 0.3
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { enabled: false } },
+          scales: { x: { display: false }, y: { display: false, min: 0 } }
+        }
+      });
+    }
+
+    sparkCharts.ddos = initSparkline('spark-ddos', 'rgba(217, 48, 37, 1)');
+    sparkCharts.c2_beacon = initSparkline('spark-c2', 'rgba(227, 108, 9, 1)');
+    sparkCharts.recon_scan = initSparkline('spark-recon', 'rgba(232, 185, 35, 1)');
+    sparkCharts.exfiltration = initSparkline('spark-exfil', 'rgba(217, 48, 37, 1)');
+    sparkCharts.dga_dns = initSparkline('spark-dns', 'rgba(46, 92, 138, 1)');
+    sparkCharts.encrypted_malware = initSparkline('spark-enc', 'rgba(121, 217, 136, 1)');
+
+    // ── Preload Existing Alerts ─────────────────────────────────────────────
+    async function loadRecentAlerts() {
+      try {
+        const res = await fetch('/api/alerts?limit=15');
+        const data = await res.json();
+        if (data.alerts && data.alerts.length > 0) {
+          streamTbody.innerHTML = '';
+          hasAlerts = true;
+          data.alerts.forEach(a => prependAlertRow(a, false));
+        }
+
+        const sumRes = await fetch('/api/analytics/summary');
+        const sumData = await sumRes.json();
+        document.getElementById('kpi-active-alerts').textContent = sumData.total_alerts || 0;
+
+        if (sumData.by_class) {
+          for (const [k, v] of Object.entries(sumData.by_class)) {
+            const countEl = document.getElementById(`trend-count-${k.split('_')[0]}`);
+            if (countEl) countEl.textContent = v;
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load initial alerts:', err);
+      }
+    }
+
+    function prependAlertRow(alert, isNew = true) {
+      if (!hasAlerts) {
+        streamTbody.innerHTML = '';
+        hasAlerts = true;
+      }
+
+      const tr = document.createElement('tr');
+      if (isNew) tr.className = 'row-new-alert';
+      tr.onclick = () => window.location.href = `/static/alerts.html?q=${encodeURIComponent(alert.alert_id)}`;
+
+      tr.innerHTML = `
+        <td class="mono" style="color:var(--text-secondary);">${formatRelativeTime(alert.timestamp)}</td>
+        <td>${renderSeverityChip(alert.severity)}</td>
+        <td><span class="threat-tag">${alert.threat_class.toUpperCase()}</span></td>
+        <td class="mono">${alert.src_ip}:${alert.src_port}</td>
+        <td class="mono">${alert.dst_ip}:${alert.dst_port}</td>
+        <td class="mono">${(alert.confidence * 100).toFixed(0)}%</td>
+      `;
+
+      streamTbody.insertBefore(tr, streamTbody.firstChild);
+
+      // Keep maximum 30 rows in table
+      if (streamTbody.children.length > 30) {
+        streamTbody.removeChild(streamTbody.lastChild);
+      }
+    }
+
+    // ── Real-Time WebSocket Handlers ─────────────────────────────────────────
+    new ThreatWebSocketClient(
+      // On new alert
+      (alert) => {
+        prependAlertRow(alert, true);
+        const activeEl = document.getElementById('kpi-active-alerts');
+        activeEl.textContent = parseInt(activeEl.textContent || '0') + 1;
+      },
+      // On 2s KPI tick
+      (kpi) => {
+        document.getElementById('kpi-rate').textContent = kpi.alerts_per_min || 0;
+        document.getElementById('kpi-throughput').textContent = (kpi.throughput_mbps || 0).toFixed(2);
+        document.getElementById('kpi-active-alerts').textContent = kpi.total_alerts || 0;
+      }
+    );
+
+    loadRecentAlerts();
+  </script>
+</body>
+</html>

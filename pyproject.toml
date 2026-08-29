@@ -1,0 +1,21 @@
+[project]
+name = "ntro-threat-detect"
+version = "0.1.0"
+description = "AI-Based Detection of Cyber Threats in Unidirectional IP Traffic"
+requires-python = ">=3.11"
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["pipeline*", "backend*", "storage*", "tools*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-o tmp_path_retention_policy=none"
+filterwarnings = [
+    "ignore::DeprecationWarning:joblib.*",
+    "ignore::UserWarning:sklearn.*",
+    "ignore::starlette.exceptions.StarletteDeprecationWarning",
+]

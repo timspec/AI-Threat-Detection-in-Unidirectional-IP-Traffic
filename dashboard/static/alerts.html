@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NTRO Threat Detection — Live Alerts Explorer</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+  <!-- Navigation Bar -->
+  <header class="navbar">
+    <a href="/" class="brand">
+      <span class="brand-badge">NTRO SOC</span>
+      <span>Cyber Threat Detection</span>
+    </a>
+    <ul class="nav-links">
+      <li><a href="/">Overview</a></li>
+      <li><a href="/static/alerts.html" class="active">Live Alerts</a></li>
+      <li><a href="/static/analytics.html">Analytics</a></li>
+      <li><a href="/static/sensors.html">Sensors</a></li>
+    </ul>
+    <div class="nav-status">
+      <span class="ingest-badge" data-tooltip="Strictly unidirectional monitoring pipeline. Zero outbound transmission capability.">
+        <span class="pulse-dot" id="ws-status-dot"></span>
+        🔒 Read-only Ingest Active
+      </span>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="container">
+
+    <!-- Filter & Search Toolbar -->
+    <section class="toolbar">
+      <input type="text" id="search-box" class="search-input" placeholder="🔍 Search by IP, Port, Alert ID, or evidence keyword...">
+
+      <select id="filter-class" class="filter-select">
+        <option value="">All Threat Classes</option>
+        <option value="ddos">DDoS / Floods</option>
+        <option value="c2_beacon">C2 Beaconing</option>
+        <option value="recon_scan">Recon Scan</option>
+        <option value="exfiltration">Data Exfiltration</option>
+        <option value="dga_dns">DGA / DNS Tunnel</option>
+        <option value="encrypted_malware">Encrypted Malware (JA3)</option>
+      </select>
+
+      <select id="filter-severity" class="filter-select">
+        <option value="">All Severities</option>
+        <option value="CRITICAL">Critical</option>
+        <option value="HIGH">High</option>
+        <option value="MEDIUM">Medium</option>
+        <option value="LOW">Low</option>
+      </select>
+
+      <button id="btn-export-csv" class="btn">📥 Export CSV</button>
+      <button id="btn-export-json" class="btn">📥 Export JSON</button>
+    </section>
+
+    <!-- Alerts Table Card -->
+    <section class="card">
+      <div class="card-header">
+        <h2 class="card-title">
+          <span>🛡️</span> Security Threat Alerts (<span id="total-alerts-count">0</span> matching)
+        </h2>
+      </div>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Severity</th>
+              <th>Threat Class</th>
+              <th>Source IP:Port</th>
+              <th>Destination IP:Port</th>
+              <th>Confidence</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="alerts-table-body">
+            <tr>
+              <td colspan="7" style="text-align:center; color:var(--text-muted); padding:30px;">Loading alerts...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Side-Drawer Alert Detail Panel -->
+  <div id="drawer-overlay" class="drawer-overlay" onclick="closeDrawer()"></div>
+  <aside id="drawer-panel" class="drawer-panel">
+    <div class="drawer-header">
+      <div>
+        <h3 id="drawer-title" style="font-size:16px; font-weight:700; color:var(--text-primary);">Alert Detail</h3>
+        <div id="drawer-alert-id" class="mono" style="font-size:11px; color:var(--text-muted);"></div>
+      </div>
+      <button class="drawer-close" onclick="closeDrawer()">✕</button>
+    </div>
+
+    <div class="drawer-body">
+      <!-- Status & Severity Header -->
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <div id="drawer-severity-container"></div>
+        <div id="drawer-threat-tag"></div>
+        <div class="mono" id="drawer-model-version" style="font-size:12px; color:var(--text-secondary);"></div>
+      </div>
+
+      <!-- Confidence Gauge Progress Bar -->
+      <div style="margin-bottom:20px;">
+        <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+          <span style="color:var(--text-secondary);">Model Confidence Score</span>
+          <span id="drawer-conf-val" class="mono" style="font-weight:700;"></span>
+        </div>
+        <div style="background-color:var(--bg-dark); height:8px; border-radius:4px; overflow:hidden;">
+          <div id="drawer-conf-bar" style="background-color:var(--primary-accent); height:100%; width:0%; transition:width 0.4s ease;"></div>
+        </div>
+      </div>
+
+      <!-- Network 5-Tuple Context -->
+      <h4 style="font-size:13px; text-transform:uppercase; color:var(--text-secondary); margin-bottom:10px;">Network Flow 5-Tuple</h4>
+      <div class="kv-grid">
+        <div class="kv-key">Source Endpoint:</div>
+        <div class="kv-val mono" id="drawer-src"></div>
+        <div class="kv-key">Destination Endpoint:</div>
+        <div class="kv-val mono" id="drawer-dst"></div>
+        <div class="kv-key">IP Protocol:</div>
+        <div class="kv-val mono" id="drawer-proto"></div>
+        <div class="kv-key">Flow ID:</div>
+        <div class="kv-val mono" id="drawer-flow-id" style="word-break:break-all;"></div>
+      </div>
+
+      <!-- Mini Trigger Chart -->
+      <h4 style="font-size:13px; text-transform:uppercase; color:var(--text-secondary); margin-bottom:10px;">Flow Metric / Anomaly Timeline</h4>
+      <div style="height:120px; margin-bottom:20px; background-color:var(--bg-dark); border-radius:var(--radius-md); padding:8px;">
+        <canvas id="drawer-chart"></canvas>
+      </div>
+
+      <!-- Trigger Evidence -->
+      <h4 style="font-size:13px; text-transform:uppercase; color:var(--text-secondary); margin-bottom:10px;">Diagnostic Evidence</h4>
+      <div id="drawer-evidence" class="evidence-box"></div>
+
+      <!-- Action Triage Row -->
+      <h4 style="font-size:13px; text-transform:uppercase; color:var(--text-secondary); margin-bottom:10px;">Analyst Triage & Actions</h4>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px;">
+        <button class="btn btn-primary" onclick="patchCurrentAlert('INVESTIGATING')">Mark Investigating</button>
+        <button class="btn" style="border-color:#3B9C4A; color:#79D988;" onclick="patchCurrentAlert('RESOLVED')">Mark Resolved</button>
+        <button class="btn" style="border-color:#D93025; color:#FF6B6B;" onclick="patchCurrentAlert('FALSE_POSITIVE')">False Positive</button>
+      </div>
+
+      <button class="btn" style="width:100%; justify-content:center;" onclick="exportCurrentAlertJson()">📥 Export Alert JSON</button>
+    </div>
+  </aside>
+
+  <script src="/static/app.js"></script>
+  <script>
+    let currentAlertId = null;
+    let currentAlertObj = null;
+    let drawerChartInstance = null;
+
+    const tbody = document.getElementById('alerts-table-body');
+    const searchBox = document.getElementById('search-box');
+    const filterClass = document.getElementById('filter-class');
+    const filterSev = document.getElementById('filter-severity');
+
+    // ── URL Sync ────────────────────────────────────────────────────────────
+    function syncUrlParams() {
+      const url = new URL(window.location);
+      if (searchBox.value) url.searchParams.set('q', searchBox.value); else url.searchParams.delete('q');
+      if (filterClass.value) url.searchParams.set('class', filterClass.value); else url.searchParams.delete('class');
+      if (filterSev.value) url.searchParams.set('severity', filterSev.value); else url.searchParams.delete('severity');
+      window.history.replaceState({}, '', url);
+    }
+
+    function readUrlParams() {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('q')) searchBox.value = params.get('q');
+      if (params.get('class')) filterClass.value = params.get('class');
+      if (params.get('severity')) filterSev.value = params.get('severity');
+    }
+
+    // ── Fetch & Render Alerts ───────────────────────────────────────────────
+    async function loadAlerts() {
+      syncUrlParams();
+      const params = new URLSearchParams();
+      if (searchBox.value) params.set('q', searchBox.value);
+      if (filterClass.value) params.set('class', filterClass.value);
+      if (filterSev.value) params.set('severity', filterSev.value);
+      params.set('limit', '100');
+
+      try {
+        const res = await fetch(`/api/alerts?${params.toString()}`);
+        const data = await res.json();
+        document.getElementById('total-alerts-count').textContent = data.total;
+
+        if (!data.alerts || data.alerts.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:30px;">No matching alerts found.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = '';
+        data.alerts.forEach(a => {
+          const tr = document.createElement('tr');
+          tr.onclick = () => openDrawer(a.alert_id);
+          tr.innerHTML = `
+            <td class="mono" style="color:var(--text-secondary);">${formatTimestamp(a.timestamp)}</td>
+            <td>${renderSeverityChip(a.severity)}</td>
+            <td><span class="threat-tag">${a.threat_class.toUpperCase()}</span></td>
+            <td class="mono">${a.src_ip}:${a.src_port}</td>
+            <td class="mono">${a.dst_ip}:${a.dst_port}</td>
+            <td class="mono">${(a.confidence * 100).toFixed(0)}%</td>
+            <td><span class="chip" style="background:#233142; color:#A3C7EB;">${a.status}</span></td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } catch (err) {
+        console.error('Failed to fetch alerts:', err);
+      }
+    }
+
+    // ── Side-Drawer Inspector ────────────────────────────────────────────────
+    async function openDrawer(alertId) {
+      currentAlertId = alertId;
+      try {
+        const res = await fetch(`/api/alerts/${encodeURIComponent(alertId)}`);
+        if (!res.ok) return;
+        const a = await res.json();
+        currentAlertObj = a;
+
+        document.getElementById('drawer-alert-id').textContent = a.alert_id;
+        document.getElementById('drawer-severity-container').innerHTML = renderSeverityChip(a.severity);
+        document.getElementById('drawer-threat-tag').innerHTML = `<span class="threat-tag">${a.threat_class.toUpperCase()}</span>`;
+        document.getElementById('drawer-model-version').textContent = `Model: ${a.model_version}`;
+
+        const confPct = Math.round(a.confidence * 100);
+        document.getElementById('drawer-conf-val').textContent = `${confPct}% (Severity: ${a.severity_score})`;
+        document.getElementById('drawer-conf-bar').style.width = `${confPct}%`;
+
+        document.getElementById('drawer-src').textContent = `${a.src_ip}:${a.src_port}`;
+        document.getElementById('drawer-dst').textContent = `${a.dst_ip}:${a.dst_port}`;
+        document.getElementById('drawer-proto').textContent = a.proto === 6 ? 'TCP (6)' : a.proto === 17 ? 'UDP (17)' : `${a.proto}`;
+        document.getElementById('drawer-flow-id').textContent = a.flow_id;
+
+        document.getElementById('drawer-evidence').textContent = JSON.stringify(a.evidence, null, 2);
+
+        // Render Trigger Point Chart
+        renderDrawerChart(a);
+
+        document.getElementById('drawer-overlay').classList.add('open');
+        document.getElementById('drawer-panel').classList.add('open');
+      } catch (err) {
+        console.error('Failed to load alert detail:', err);
+      }
+    }
+
+    function closeDrawer() {
+      document.getElementById('drawer-overlay').classList.remove('open');
+      document.getElementById('drawer-panel').classList.remove('open');
+      currentAlertId = null;
+    }
+
+    function renderDrawerChart(alert) {
+      const ctx = document.getElementById('drawer-chart').getContext('2d');
+      if (drawerChartInstance) drawerChartInstance.destroy();
+
+      const conf = alert.confidence || 0.8;
+      drawerChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: ['T-4s', 'T-3s', 'T-2s', 'T-1s', 'Trigger', 'T+1s'],
+          datasets: [{
+            label: 'Threat Metric',
+            data: [0.1, 0.15, 0.2, 0.35, conf, conf * 0.95],
+            borderColor: '#2E5C8A',
+            backgroundColor: 'rgba(46, 92, 138, 0.2)',
+            fill: true,
+            tension: 0.3,
+            pointBackgroundColor: ['#2E5C8A', '#2E5C8A', '#2E5C8A', '#2E5C8A', '#D93025', '#2E5C8A'],
+            pointRadius: [2, 2, 2, 2, 6, 2]
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9AA7B4', font: { size: 10 } } },
+            y: { min: 0, max: 1.0, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9AA7B4', font: { size: 10 } } }
+          }
+        }
+      });
+    }
+
+    async function patchCurrentAlert(newStatus) {
+      if (!currentAlertId) return;
+      try {
+        const res = await fetch(`/api/alerts/${encodeURIComponent(currentAlertId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: newStatus, analyst_user: 'soc_analyst' })
+        });
+        if (res.ok) {
+          loadAlerts();
+          openDrawer(currentAlertId);
+        }
+      } catch (err) {
+        console.error('Failed to update alert:', err);
+      }
+    }
+
+    function exportCurrentAlertJson() {
+      if (!currentAlertObj) return;
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(currentAlertObj, null, 2));
+      const a = document.createElement('a');
+      a.setAttribute("href", dataStr);
+      a.setAttribute("download", `${currentAlertObj.alert_id}.json`);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+
+    // ── Export CSV/JSON Buttons ──────────────────────────────────────────────
+    document.getElementById('btn-export-csv').onclick = () => {
+      const p = new URLSearchParams(window.location.search);
+      p.set('format', 'csv');
+      window.location.href = `/api/export?${p.toString()}`;
+    };
+
+    document.getElementById('btn-export-json').onclick = () => {
+      const p = new URLSearchParams(window.location.search);
+      p.set('format', 'json');
+      window.location.href = `/api/export?${p.toString()}`;
+    };
+
+    searchBox.oninput = () => { clearTimeout(window._searchTimer); window._searchTimer = setTimeout(loadAlerts, 300); };
+    filterClass.onchange = loadAlerts;
+    filterSev.onchange = loadAlerts;
+
+    // ── Live Stream Sync via WebSocket ───────────────────────────────────────
+    new ThreatWebSocketClient((newAlert) => {
+      // If table is on page 1 without specific filter, prepend live row
+      if (!searchBox.value && !filterClass.value && !filterSev.value) {
+        const tr = document.createElement('tr');
+        tr.className = 'row-new-alert';
+        tr.onclick = () => openDrawer(newAlert.alert_id);
+        tr.innerHTML = `
+          <td class="mono" style="color:var(--text-secondary);">${formatTimestamp(newAlert.timestamp)}</td>
+          <td>${renderSeverityChip(newAlert.severity)}</td>
+          <td><span class="threat-tag">${newAlert.threat_class.toUpperCase()}</span></td>
+          <td class="mono">${newAlert.src_ip}:${newAlert.src_port}</td>
+          <td class="mono">${newAlert.dst_ip}:${newAlert.dst_port}</td>
+          <td class="mono">${(newAlert.confidence * 100).toFixed(0)}%</td>
+          <td><span class="chip" style="background:#233142; color:#A3C7EB;">${newAlert.status}</span></td>
+        `;
+        tbody.insertBefore(tr, tbody.firstChild);
+      }
+    });
+
+    readUrlParams();
+    loadAlerts();
+  </script>
+</body>
+</html>

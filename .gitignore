@@ -1,0 +1,29 @@
+# ── Python ──
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# ── Data / runtime artifacts ──
+*.db
+*.pcap
+*.pcapng
+*.csv
+.env
+
+# ── Whitelist curated demo assets & spec ──
+!ntro_threat_detect.spec
+!samples/demo/*.pcap
+!samples/sample.pcap
+
+# ── IDE / OS ──
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+Desktop.ini

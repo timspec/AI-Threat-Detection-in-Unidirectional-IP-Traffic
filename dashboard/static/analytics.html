@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NTRO Threat Detection — SOC Analytics & Model Evaluation</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+  <!-- Navigation Bar -->
+  <header class="navbar">
+    <a href="/" class="brand">
+      <span class="brand-badge">NTRO SOC</span>
+      <span>Cyber Threat Detection</span>
+    </a>
+    <ul class="nav-links">
+      <li><a href="/">Overview</a></li>
+      <li><a href="/static/alerts.html">Live Alerts</a></li>
+      <li><a href="/static/analytics.html" class="active">Analytics</a></li>
+      <li><a href="/static/sensors.html">Sensors</a></li>
+    </ul>
+    <div class="nav-status">
+      <span class="ingest-badge" data-tooltip="Strictly unidirectional monitoring pipeline. Zero outbound transmission capability.">
+        <span class="pulse-dot" id="ws-status-dot"></span>
+        🔒 Read-only Ingest Active
+      </span>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="container">
+
+    <!-- Top Row: Volume by Class Over Time & Severity Distribution -->
+    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px; margin-bottom: 24px;">
+
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title"><span>📊</span> Threat Volume by Class (Last 24 Hours)</h2>
+        </div>
+        <div style="padding: 20px; height: 320px;">
+          <canvas id="chart-volume-trends"></canvas>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title"><span>🎯</span> Severity Distribution</h2>
+        </div>
+        <div style="padding: 20px; height: 320px; display:flex; align-items:center; justify-content:center;">
+          <canvas id="chart-severity-donut"></canvas>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- Middle Row: Top Talkers Table (Sources & Destinations) -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title"><span>🚨</span> Top Offending Source Hosts</h2>
+        </div>
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Source IP</th>
+                <th>Alert Count</th>
+                <th>Risk Profile</th>
+              </tr>
+            </thead>
+            <tbody id="top-sources-tbody">
+              <tr><td colspan="3" style="text-align:center; color:var(--text-muted); padding:20px;">Loading top sources...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title"><span>🎯</span> Top Targeted Destinations</h2>
+        </div>
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Destination IP</th>
+                <th>Incident Count</th>
+                <th>Asset Impact</th>
+              </tr>
+            </thead>
+            <tbody id="top-dest-tbody">
+              <tr><td colspan="3" style="text-align:center; color:var(--text-muted); padding:20px;">Loading top targets...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- Bottom Row: Class-Wise Model Performance Summary -->
+    <section class="card">
+      <div class="card-header">
+        <h2 class="card-title"><span>🤖</span> AI Detector Performance & Model Cards</h2>
+      </div>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Threat Category</th>
+              <th>Model Architecture</th>
+              <th>Version</th>
+              <th>Status</th>
+              <th>Precision</th>
+              <th>Recall</th>
+              <th>F1-Score</th>
+            </tr>
+          </thead>
+          <tbody id="models-table-body">
+            <tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:20px;">Loading model registry...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+    let trendChart = null;
+    let donutChart = null;
+
+    async function loadAnalyticsData() {
+      try {
+        // 1. Load Summary
+        const sumRes = await fetch('/api/analytics/summary');
+        const sum = await sumRes.json();
+
+        // Populate Top Sources
+        const srcTbody = document.getElementById('top-sources-tbody');
+        if (sum.top_sources && sum.top_sources.length > 0) {
+          srcTbody.innerHTML = '';
+          sum.top_sources.forEach(s => {
+            srcTbody.innerHTML += `
+              <tr>
+                <td class="mono" style="font-weight:600; color:#A3C7EB;">${s.ip}</td>
+                <td class="mono">${s.count}</td>
+                <td><span class="chip chip-critical">High Offender</span></td>
+              </tr>
+            `;
+          });
+        }
+
+        // Populate Top Targets
+        const dstTbody = document.getElementById('top-dest-tbody');
+        if (sum.top_destinations && sum.top_destinations.length > 0) {
+          dstTbody.innerHTML = '';
+          sum.top_destinations.forEach(d => {
+            dstTbody.innerHTML += `
+              <tr>
+                <td class="mono" style="font-weight:600; color:#A3C7EB;">${d.ip}</td>
+                <td class="mono">${d.count}</td>
+                <td><span class="chip chip-high">Targeted Asset</span></td>
+              </tr>
+            `;
+          });
+        }
+
+        // Render Severity Donut
+        renderSeverityDonut(sum.by_severity || {});
+
+        // 2. Load Trends
+        const trendRes = await fetch('/api/analytics/trends?window_hours=24&bucket_seconds=300');
+        const trendData = await trendRes.json();
+        renderTrendChart(trendData.buckets || []);
+
+        // 3. Load Models
+        const modelRes = await fetch('/api/models');
+        const models = await modelRes.json();
+        renderModelsTable(models);
+
+      } catch (err) {
+        console.error('Failed to load analytics:', err);
+      }
+    }
+
+    function renderSeverityDonut(bySev) {
+      const ctx = document.getElementById('chart-severity-donut').getContext('2d');
+      const crit = bySev.CRITICAL || 0;
+      const high = bySev.HIGH || 0;
+      const med = bySev.MEDIUM || 0;
+      const low = bySev.LOW || 0;
+
+      donutChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['Critical', 'High', 'Medium', 'Low'],
+          datasets: [{
+            data: [crit || 1, high || 1, med || 1, low || 1],
+            backgroundColor: ['#D93025', '#E36C09', '#E8B923', '#3B9C4A'],
+            borderColor: '#1B2532',
+            borderWidth: 3
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: { color: '#E8ECF1', font: { family: 'Inter', size: 12 }, padding: 16 }
+            }
+          },
+          cutout: '70%'
+        }
+      });
+    }
+
+    function renderTrendChart(buckets) {
+      const ctx = document.getElementById('chart-volume-trends').getContext('2d');
+      const labels = buckets.map(b => new Date(b.timestamp * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}));
+      const critData = buckets.map(b => b.by_severity.CRITICAL || 0);
+      const highData = buckets.map(b => b.by_severity.HIGH || 0);
+      const otherData = buckets.map(b => (b.by_severity.MEDIUM || 0) + (b.by_severity.LOW || 0));
+
+      trendChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels.length ? labels : ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00'],
+          datasets: [
+            {
+              label: 'Critical Threats',
+              data: critData.length ? critData : [0, 2, 4, 1, 3, 5],
+              borderColor: '#D93025',
+              backgroundColor: 'rgba(217, 48, 37, 0.25)',
+              fill: true,
+              tension: 0.3
+            },
+            {
+              label: 'High Severity',
+              data: highData.length ? highData : [1, 3, 2, 4, 2, 3],
+              borderColor: '#E36C09',
+              backgroundColor: 'rgba(227, 108, 9, 0.25)',
+              fill: true,
+              tension: 0.3
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { labels: { color: '#E8ECF1', font: { family: 'Inter' } } }
+          },
+          scales: {
+            x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9AA7B4' } },
+            y: { min: 0, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9AA7B4' } }
+          }
+        }
+      });
+    }
+
+    function renderModelsTable(models) {
+      const tbody = document.getElementById('models-table-body');
+      tbody.innerHTML = '';
+      models.forEach(m => {
+        tbody.innerHTML += `
+          <tr>
+            <td><span class="threat-tag">${m.threat_class.toUpperCase()}</span></td>
+            <td style="font-weight:600;">${m.name}</td>
+            <td class="mono">${m.version}</td>
+            <td><span class="chip chip-low">${m.status}</span></td>
+            <td class="mono">${(m.precision * 100).toFixed(1)}%</td>
+            <td class="mono">${(m.recall * 100).toFixed(1)}%</td>
+            <td class="mono" style="color:#79D988; font-weight:700;">${(m.f1_score * 100).toFixed(1)}%</td>
+          </tr>
+        `;
+      });
+    }
+
+    loadAnalyticsData();
+  </script>
+</body>
+</html>

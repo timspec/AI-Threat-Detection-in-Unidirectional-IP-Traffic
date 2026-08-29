@@ -1,0 +1,8 @@
+# Place lab PCAPs in this directory:
+#   1. benign_baseline.pcap
+#   2. ddos.pcap
+#   3. c2_beacon.pcap
+#   4. dga_dns.pcap
+#   5. encrypted_malware.pcap
+#   6. recon_scan.pcap
+#   7. exfiltration.pcap
